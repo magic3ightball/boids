@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보이드 군집</title>
+<style>
+:root {
+  --bg: #0b0e14; --panel: #131824; --panel2: #1a2130; --fg: #e6ebf2; --muted: #8a96a8;
+  --line: #273044; --accent: #7aa7ff; --sep: #ff7a7a; --ali: #6fdc8c; --coh: #7aa7ff;
+  --boid: #e8eef8;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 "Apple SD Gothic Neo", "Pretendard", system-ui, sans-serif; }
+body { display: flex; overflow: hidden; }
+#stage { position: relative; flex: 1; min-width: 0; }
+#cv { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+#hud { position: absolute; left: 10px; top: 8px; font: 12px/1.4 ui-monospace, Menlo, monospace;
+  background: rgba(11,14,20,.72); padding: 4px 8px; border-radius: 6px; pointer-events: none; white-space: pre; }
+#hint { position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted);
+  background: rgba(11,14,20,.72); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
+#score { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); font-size: 18px; font-weight: 700;
+  background: rgba(11,14,20,.78); padding: 6px 16px; border-radius: 999px; pointer-events: none; white-space: nowrap; }
+#score .dash { display: inline-block; width: 60px; height: 6px; background: #273044; border-radius: 3px; vertical-align: 3px; margin-left: 8px; overflow: hidden; }
+#score .dash i { display: block; height: 100%; background: #ffcf6a; }
+#result { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(11,14,20,.55); }
+#result[hidden] { display: none; }
+#result .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 28px; text-align: center; }
+#result .big { font-size: 40px; font-weight: 800; margin: 4px 0; }
+.b.game { width: 100%; padding: 10px; font-size: 15px; font-weight: 700; background: #2a2440; border-color: #6b5bd6; }
+#panel { width: 330px; flex: none; background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; background: none; border: 0; color: var(--muted); font: inherit; font-weight: 600;
+  padding: 11px 0; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--accent); }
+.tabbody { overflow-y: auto; padding: 12px 16px 24px; flex: 1; }
+.tabbody[hidden] { display: none; }
+h3 { font-size: 12px; letter-spacing: .06em; color: var(--muted); margin: 16px 0 8px; font-weight: 600; }
+h3:first-child { margin-top: 2px; }
+.row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin-bottom: 8px; }
+.row label { font-size: 13px; }
+.row output { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.row .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.btns.two { grid-template-columns: 1fr 1fr; }
+button.b { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 7px;
+  font: inherit; font-size: 13px; padding: 7px 4px; cursor: pointer; }
+button.b:hover { border-color: var(--accent); }
+button.b.on { background: #24345a; border-color: var(--accent); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-bottom: 8px; }
+.seg button { flex: 1; background: var(--panel2); color: var(--muted); border: 0; font: inherit; font-size: 13px; padding: 6px 0; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: #24345a; color: var(--fg); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+.small { font-size: 12px; color: var(--muted); }
+/* 설명 탭 */
+.ex p { margin: 6px 0 10px; font-size: 13px; }
+.card { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.card b { font-size: 14px; }
+.card svg { width: 100%; height: auto; display: block; margin: 6px 0; }
+.card code, .ex code { font: 12px ui-monospace, Menlo, monospace; background: #0e131d; padding: 1px 4px; border-radius: 4px; }
+.ex a { color: var(--accent); }
+@media (max-width: 760px) {
+  body { flex-direction: column; overflow: auto; }
+  #stage { height: 62vh; flex: none; }
+  #panel { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="hud">FPS --</div>
+  <div id="score" hidden></div>
+  <div id="result" hidden><div class="box">
+    <div class="small">45초 동안 잡은 물고기</div>
+    <div class="big" id="res-n">0</div>
+    <div class="small" id="res-best"></div>
+    <p><button class="b game" id="btn-again">다시 하기</button></p>
+    <button class="b" id="btn-quit">그만하고 구경하기</button>
+  </div></div>
+  <div id="hint">왼쪽 길게 누르기: 모이기 · 오른쪽/Shift+클릭: 도망 · 짧게 클릭: 한 마리 살펴보기</div>
+</div>
+
+<aside id="panel">
+  <div class="tabs">
+    <button class="on" data-tab="ctl">조절</button>
+    <button data-tab="ex">어떤 알고리즘?</button>
+  </div>
+
+  <div class="tabbody" id="tab-ctl">
+    <h3>놀이</h3>
+    <button class="b game" id="btn-shark">🦈 상어 놀이 시작</button>
+    <p class="small">상어가 커서를 따라갑니다. 꾹 누르면 잠깐 돌진합니다. 물고기 떼는 겁먹으면 빨라지고 갈라져 도망칩니다. 45초 동안 몇 마리 잡을까요?</p>
+
+    <h3>프리셋</h3>
+    <div class="btns two" id="presets"></div>
+
+    <h3>세 가지 규칙의 세기</h3>
+    <div id="sliders-rule"></div>
+
+    <h3>거리와 속도</h3>
+    <div id="sliders-env"></div>
+
+    <h3>실행</h3>
+    <div class="btns">
+      <button class="b" id="btn-pause">일시정지</button>
+      <button class="b" id="btn-restart" title="같은 시작 배치로 처음부터">재시작</button>
+      <button class="b" id="btn-random" title="새 무작위 배치">무작위 초기화</button>
+    </div>
+
+    <h3>가장자리</h3>
+    <div class="seg" id="seg-edge">
+      <button data-v="wrap" class="on">반대편으로 이어짐</button>
+      <button data-v="bounce">벽에서 튕기기</button>
+    </div>
+
+    <h3>보기</h3>
+    <div class="seg" id="seg-color">
+      <button data-v="solid" class="on">단색</button>
+      <button data-v="speed">속도 색</button>
+      <button data-v="dir">방향 색</button>
+    </div>
+    <label class="check"><input type="checkbox" id="chk-trail"> 잔상(꼬리) 남기기</label>
+    <p class="small">보이드를 짧게 클릭하면 그 보이드의 시야 반경, 분리 거리, 이웃이 강조되고 세 힘이 화살표로 보입니다. 빈 곳을 클릭하면 해제됩니다.</p>
+  </div>
+
+  <div class="tabbody ex" id="tab-ex" hidden>
+    <p>보이드(Boids)는 1986년 크레이그 레이놀즈가 만든 군집 모형입니다. 지휘하는 새는 없습니다. 각 보이드는 <b>가까운 이웃만 보고</b> 세 가지 규칙을 따릅니다. 떼 전체의 움직임은 그 결과로 생깁니다.</p>
+
+    <div class="card">
+      <b>0. 보이드 하나가 아는 것</b>
+      <svg viewBox="0 0 280 150">
+        <circle cx="140" cy="75" r="62" fill="rgba(122,167,255,.08)" stroke="#7aa7ff" stroke-dasharray="4 3"/>
+        <text x="200" y="22" fill="#8a96a8" font-size="11">시야 반경</text>
+        <polygon points="152,75 134,66 134,84" fill="#fff"/>
+        <line x1="152" y1="75" x2="186" y2="75" stroke="#fff" stroke-width="1.5" marker-end="url(#ah)"/>
+        <text x="160" y="94" fill="#8a96a8" font-size="11">속도</text>
+        <g fill="#6fdc8c"><polygon points="105,45 93,40 94,51"/><polygon points="170,110 158,104 158,116"/><polygon points="110,105 99,98 98,110"/></g>
+        <g fill="#556"><polygon points="30,30 20,24 20,36"/><polygon points="250,130 240,124 240,136"/></g>
+        <text x="8" y="146" fill="#8a96a8" font-size="11">회색 = 시야 밖이라 무시</text>
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+      </svg>
+      <p>위치와 속도만 가집니다. 시야 반경 안의 이웃(초록)만 셉니다.</p>
+    </div>
+
+    <div class="card">
+      <b style="color:var(--sep)">① 분리: 너무 가까우면 비켜라</b>
+      <svg viewBox="0 0 280 120">
+        <circle cx="140" cy="60" r="34" fill="rgba(255,122,122,.08)" stroke="#ff7a7a" stroke-dasharray="3 3"/>
+        <polygon points="150,60 134,52 134,68" fill="#fff"/>
+        <polygon points="160,38 150,32 150,44" fill="#6fdc8c"/>
+        <polygon points="124,82 114,76 114,88" fill="#6fdc8c"/>
+        <line x1="142" y1="60" x2="112" y2="44" stroke="#ff7a7a" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="186" y="64" fill="#8a96a8" font-size="11">분리 거리</text>
+        <text x="40" y="34" fill="#ff7a7a" font-size="11">밀어내는 힘</text>
+      </svg>
+      <p>분리 거리 안의 이웃마다 <code>(나 − 이웃) / 거리²</code>를 더합니다. 가까울수록 세게 밀립니다.</p>
+    </div>
+
+    <div class="card">
+      <b style="color:var(--ali)">② 정렬: 이웃과 같은 쪽으로</b>
+      <svg viewBox="0 0 280 120">
+        <g stroke="#6fdc8c" stroke-width="1.5"><line x1="60" y1="30" x2="95" y2="18" marker-end="url(#ah)"/><line x1="60" y1="90" x2="98" y2="84" marker-end="url(#ah)"/><line x1="40" y1="60" x2="78" y2="48" marker-end="url(#ah)"/></g>
+        <text x="20" y="112" fill="#8a96a8" font-size="11">이웃들의 속도</text>
+        <line x1="150" y1="60" x2="190" y2="30" stroke="#fff" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#ah)"/>
+        <line x1="150" y1="60" x2="196" y2="46" stroke="#6fdc8c" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="200" y="28" fill="#8a96a8" font-size="11">지금 속도</text>
+        <text x="202" y="56" fill="#6fdc8c" font-size="11">평균 방향</text>
+      </svg>
+      <p>이웃 속도의 평균을 구해서 그 방향으로 핸들을 틉니다.</p>
+    </div>
+
+    <div class="card">
+      <b style="color:var(--coh)">③ 응집: 무리 가운데로</b>
+      <svg viewBox="0 0 280 120">
+        <g fill="#6fdc8c"><circle cx="190" cy="30" r="5"/><circle cx="230" cy="70" r="5"/><circle cx="180" cy="95" r="5"/></g>
+        <g stroke="#556" stroke-dasharray="2 2"><line x1="190" y1="30" x2="200" y2="65"/><line x1="230" y1="70" x2="200" y2="65"/><line x1="180" y1="95" x2="200" y2="65"/></g>
+        <circle cx="200" cy="65" r="6" fill="none" stroke="#7aa7ff" stroke-width="2"/>
+        <text x="210" y="112" fill="#7aa7ff" font-size="11">평균 위치</text>
+        <polygon points="70,65 54,57 54,73" fill="#fff"/>
+        <line x1="72" y1="65" x2="186" y2="65" stroke="#7aa7ff" stroke-width="2.5" marker-end="url(#ah)"/>
+      </svg>
+      <p>이웃 위치의 평균(무게중심)을 향해 갑니다.</p>
+    </div>
+
+    <div class="card">
+      <b>④ 조향: 원하는 속도 − 지금 속도</b>
+      <svg viewBox="0 0 280 110">
+        <line x1="40" y1="85" x2="200" y2="85" stroke="#fff" stroke-width="1.5" marker-end="url(#ah)"/>
+        <text x="110" y="102" fill="#8a96a8" font-size="11">지금 속도 v</text>
+        <line x1="40" y1="85" x2="150" y2="20" stroke="#7aa7ff" stroke-width="1.5" marker-end="url(#ah)"/>
+        <text x="40" y="30" fill="#7aa7ff" font-size="11">원하는 속도</text>
+        <line x1="200" y1="85" x2="152" y2="23" stroke="#ffcf6a" stroke-width="2.5" marker-end="url(#ah)"/>
+        <text x="186" y="42" fill="#ffcf6a" font-size="11">조향력 (최대 힘으로 자름)</text>
+      </svg>
+      <p>각 규칙은 "가고 싶은 방향 × 최대 속도"를 만듭니다. 거기서 지금 속도를 빼면 조향력이 됩니다. 조향력은 <b>최대 힘</b>으로 자르고, 세 힘에 슬라이더 세기를 곱해 더합니다. 그 합을 속도에 더한 뒤 속도를 <b>최대 속도</b>로 자릅니다. 최대 힘이 작으면 크게 돌고, 크면 홱홱 꺾습니다.</p>
+    </div>
+
+    <div class="card">
+      <b>⑤ 빠르게 이웃 찾기: 공간 격자</b>
+      <svg viewBox="0 0 280 150">
+        <g stroke="#273044">
+          <line x1="20" y1="10" x2="20" y2="140"/><line x1="72" y1="10" x2="72" y2="140"/><line x1="124" y1="10" x2="124" y2="140"/><line x1="176" y1="10" x2="176" y2="140"/><line x1="228" y1="10" x2="228" y2="140"/>
+          <line x1="20" y1="10" x2="228" y2="10"/><line x1="20" y1="54" x2="228" y2="54"/><line x1="20" y1="98" x2="228" y2="98"/><line x1="20" y1="140" x2="228" y2="140"/>
+        </g>
+        <rect x="20" y="10" width="156" height="130" fill="rgba(122,167,255,.10)" stroke="#7aa7ff"/>
+        <circle cx="100" cy="76" r="4" fill="#fff"/>
+        <circle cx="100" cy="76" r="50" fill="none" stroke="#7aa7ff" stroke-dasharray="3 3"/>
+        <g fill="#6fdc8c"><circle cx="60" cy="40" r="3"/><circle cx="140" cy="110" r="3"/><circle cx="130" cy="60" r="3"/></g>
+        <g fill="#556"><circle cx="200" cy="30" r="3"/><circle cx="210" cy="120" r="3"/><circle cx="190" cy="80" r="3"/></g>
+        <text x="234" y="80" fill="#8a96a8" font-size="11">안 봄</text>
+      </svg>
+      <p>화면을 <b>시야 반경 이상 크기</b>의 칸으로 나누고, 매 프레임 보이드를 칸에 넣습니다. 이웃은 내 칸과 둘레 8칸에만 있을 수 있으니 9칸만 뒤집니다. 1000마리 모두를 서로 비교하는 일(약 100만 번)이 고르게 퍼져 있으면 수천 번으로 줄어듭니다.</p>
+    </div>
+
+    <div class="card">
+      <b>⑥ 가장자리</b>
+      <p><b>이어짐</b>: 오른쪽으로 나가면 왼쪽에서 들어옵니다. 거리도 "더 짧은 쪽"으로 재서, 경계 너머의 이웃도 이웃으로 봅니다. 격자 칸도 반대편과 이어집니다.<br><b>튕기기</b>: 벽에 닿으면 그 축의 속도를 뒤집습니다.</p>
+    </div>
+
+    <div class="card">
+      <b>⑦ 상어 놀이: 네 번째 규칙 "포식자 피하기"</b>
+      <svg viewBox="0 0 280 120">
+        <circle cx="70" cy="60" r="52" fill="rgba(255,122,122,.07)" stroke="#ff7a7a" stroke-dasharray="3 3"/>
+        <polygon points="88,60 58,48 52,60 58,72" fill="#9fb4d6"/>
+        <text x="40" y="116" fill="#8a96a8" font-size="11">겁나는 거리</text>
+        <g fill="#6fdc8c"><polygon points="140,40 128,34 128,46"/><polygon points="150,62 138,56 138,68"/><polygon points="138,86 126,80 126,92"/></g>
+        <g stroke="#ff7a7a" stroke-width="2"><line x1="140" y1="40" x2="190" y2="16" marker-end="url(#ah)"/><line x1="150" y1="62" x2="206" y2="62" marker-end="url(#ah)"/><line x1="138" y1="86" x2="188" y2="110" marker-end="url(#ah)"/></g>
+        <text x="200" y="40" fill="#ff7a7a" font-size="11">가까울수록</text><text x="200" y="54" fill="#ff7a7a" font-size="11">세게 + 빨리</text>
+      </svg>
+      <p>상어가 겁나는 거리 안에 들어오면 상어 반대쪽으로 도망가는 힘이 생깁니다. 가까울수록 이 힘이 세지고, 겁먹은 동안은 최대 속도도 1.7배가 됩니다. 이 규칙도 각자 따로 계산할 뿐인데, 떼가 상어 앞에서 둘로 갈라졌다가 뒤에서 다시 합쳐집니다. 실제 물고기 떼의 "분수 효과"와 비슷합니다. 정렬이 강하면 한 마리의 공포가 떼 전체로 번집니다.</p>
+    </div>
+
+    <div class="card">
+      <b>코드 어디서?</b>
+      <p>파일 안 <code>step()</code> 함수에 <code>① 분리</code>, <code>② 정렬</code>, <code>③ 응집</code>, <code>④ 조향·제한</code>, <code>⑤ 공간 격자</code>, <code>⑥ 가장자리</code>, <code>⑦ 포식자</code> 주석을 달아 두었습니다.</p>
+    </div>
+    <p class="small">출처: Craig Reynolds, "Flocks, Herds, and Schools: A Distributed Behavioral Model" (SIGGRAPH 1987) · <a href="https://www.red3d.com/cwr/boids/" target="_blank" rel="noopener">red3d.com/cwr/boids</a></p>
+  </div>
+</aside>
+
+<script>
+"use strict";
+// ───────── 설정값 ─────────
+const MAX_N = 1000;
+const P = {
+  sep: 1.5, ali: 1.0, coh: 1.0,   // 세 규칙의 세기 (0~3)
+  view: 60,                        // 시야 반경 (px)
+  sepDist: 22,                     // 분리 거리 (px)
+  maxSpeed: 3.5,                   // 최대 속도 (px/프레임)
+  maxForce: 0.06,                  // 최대 힘 = 최대 회전력 (px/프레임²)
+  n: 500,                          // 보이드 수
+  edge: "wrap",                    // "wrap" | "bounce"
+  color: "solid",                  // "solid" | "speed" | "dir"
+  trail: false,
+};
+const PRESETS = {
+  "새 떼":           { sep: 1.5, ali: 1.0, coh: 1.0, view: 60,  sepDist: 22, maxSpeed: 3.5, maxForce: 0.06 },
+  "물고기 떼":       { sep: 1.3, ali: 2.5, coh: 0.8, view: 45,  sepDist: 14, maxSpeed: 2.6, maxForce: 0.10 },
+  "모기떼(흩어짐)":  { sep: 2.8, ali: 0.0, coh: 0.3, view: 30,  sepDist: 28, maxSpeed: 4.0, maxForce: 0.40 },
+  "뭉친 공":         { sep: 0.8, ali: 0.3, coh: 3.0, view: 140, sepDist: 9,  maxSpeed: 2.5, maxForce: 0.12 },
+};
+
+// ───────── 상태 (타입 배열로 1000마리도 가볍게) ─────────
+const px = new Float32Array(MAX_N), py = new Float32Array(MAX_N);
+const vx = new Float32Array(MAX_N), vy = new Float32Array(MAX_N);
+const fx = new Float32Array(MAX_N), fy = new Float32Array(MAX_N); // 이번 프레임에 계산한 힘
+let W = 800, H = 600, paused = false, seed = 12345, rng;
+let selected = -1;
+const selForce = { sx: 0, sy: 0, ax: 0, ay: 0, cx: 0, cy: 0 }; // 선택한 보이드의 세 힘 (화살표용)
+const mouse = { x: 0, y: 0, mode: 0 };  // mode: 0 없음, 1 끌어당김, -1 도망
+// 상어 놀이 상태
+const FEAR = 110, EAT = 11, CHEW = 18, ROUND = 45, START_N = 400;
+const shark = { on: false, playing: false, x: 0, y: 0, vx: 0, vy: 0, ang: 0, dash: false, stamina: 1,
+  eaten: 0, tLeft: ROUND, best: 0, wiggle: 0 };
+try { shark.best = +localStorage.getItem("boids-shark-best") || 0; } catch (e) {}
+const scared = new Uint8Array(MAX_N);
+const bits = [];   // 잡아먹을 때 튀는 조각
+
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function spawn(i) {
+  px[i] = rng() * W; py[i] = rng() * H;
+  const a = rng() * Math.PI * 2, s = P.maxSpeed * (0.5 + 0.5 * rng());
+  vx[i] = Math.cos(a) * s; vy[i] = Math.sin(a) * s;
+}
+function resetAll(newSeed) {
+  if (newSeed) seed = (Math.random() * 2 ** 31) | 0;
+  rng = mulberry32(seed);
+  for (let i = 0; i < MAX_N; i++) spawn(i);   // 1000마리 모두 미리 만들어 두면 수를 바꿔도 같은 배치가 유지됨
+  selected = -1;
+}
+
+// ───────── ⑤ 공간 격자 ─────────
+// 칸 크기를 시야 반경 이상으로 잡으면, 이웃은 내 칸 + 둘레 8칸 안에만 있다.
+let cols = 1, rows = 1, cellW = 1, cellH = 1;
+let cellStart = new Int32Array(1), cellCount = new Int32Array(1);
+const sorted = new Int32Array(MAX_N), cellOf = new Int32Array(MAX_N);
+function buildGrid(n) {
+  cols = Math.max(1, Math.floor(W / P.view)); rows = Math.max(1, Math.floor(H / P.view));
+  cellW = W / cols; cellH = H / rows;          // floor로 나눠서 칸 하나가 항상 시야 반경 이상
+  const nc = cols * rows;
+  if (cellStart.length < nc + 1) { cellStart = new Int32Array(nc + 1); cellCount = new Int32Array(nc); }
+  cellCount.fill(0, 0, nc);
+  for (let i = 0; i < n; i++) {
+    let cx = (px[i] / cellW) | 0, cy = (py[i] / cellH) | 0;
+    if (cx >= cols) cx = cols - 1; if (cy >= rows) cy = rows - 1; if (cx < 0) cx = 0; if (cy < 0) cy = 0;
+    const c = cy * cols + cx; cellOf[i] = c; cellCount[c]++;
+  }
+  cellStart[0] = 0;
+  for (let c = 0; c < nc; c++) cellStart[c + 1] = cellStart[c] + cellCount[c];
+  cellCount.fill(0, 0, nc);
+  for (let i = 0; i < n; i++) { const c = cellOf[i]; sorted[cellStart[c] + cellCount[c]++] = i; }
+}
+
+// ④ 조향: (원하는 방향 → 최대 속도로 늘림) − 지금 속도, 그리고 최대 힘으로 자름
+let _sx = 0, _sy = 0;
+function steer(dx, dy, i) {
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) { _sx = _sy = 0; return; }
+  let sx = dx / len * P.maxSpeed - vx[i], sy = dy / len * P.maxSpeed - vy[i];
+  const m = Math.hypot(sx, sy);
+  if (m > P.maxForce) { sx *= P.maxForce / m; sy *= P.maxForce / m; }
+  _sx = sx; _sy = sy;
+}
+
+// ───────── 한 걸음 ─────────
+function step(k) {
+  const n = P.n, wrap = P.edge === "wrap", hw = W / 2, hh = H / 2;
+  const view2 = P.view * P.view, sep2 = P.sepDist * P.sepDist;
+  buildGrid(n);
+  const cxR = cols < 3 ? [0, cols - 1] : [-1, 1], cyR = rows < 3 ? [0, rows - 1] : [-1, 1];
+  const relX = cols < 3, relY = rows < 3; // 칸이 3개 미만이면 겹치지 않게 전부 한 번씩만 본다
+
+  for (let i = 0; i < n; i++) {
+    const xi = px[i], yi = py[i];
+    let sepX = 0, sepY = 0, sepN = 0;   // ① 분리 합
+    let aliX = 0, aliY = 0;             // ② 정렬 합
+    let cohX = 0, cohY = 0, nb = 0;     // ③ 응집 합 (상대 위치로 더함)
+    const ci = cellOf[i], gx = ci % cols, gy = (ci / cols) | 0;
+    for (let oy = cyR[0]; oy <= cyR[1]; oy++) {
+      let yy = relY ? oy : gy + oy;
+      if (yy < 0 || yy >= rows) { if (!wrap) continue; yy = (yy + rows) % rows; } // ⑥ 이어짐이면 격자도 반대편과 연결
+      for (let ox = cxR[0]; ox <= cxR[1]; ox++) {
+        let xx = relX ? ox : gx + ox;
+        if (xx < 0 || xx >= cols) { if (!wrap) continue; xx = (xx + cols) % cols; }
+        const c = yy * cols + xx;
+        for (let s = cellStart[c], e = cellStart[c + 1]; s < e; s++) {
+          const j = sorted[s];
+          if (j === i) continue;
+          let dx = px[j] - xi, dy = py[j] - yi;
+          if (wrap) {  // ⑥ 경계 너머가 더 가까우면 그쪽으로 잰다
+            if (dx > hw) dx -= W; else if (dx < -hw) dx += W;
+            if (dy > hh) dy -= H; else if (dy < -hh) dy += H;
+          }
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= view2) continue;               // 시야 밖은 무시
+          nb++;
+          aliX += vx[j]; aliY += vy[j];            // ② 정렬: 이웃 속도 더하기
+          cohX += dx; cohY += dy;                  // ③ 응집: 이웃 위치(나 기준) 더하기
+          if (d2 < sep2 && d2 > 1e-6) {            // ① 분리: 가까울수록 세게 (1/거리²)
+            sepX -= dx / d2; sepY -= dy / d2; sepN++;
+          }
+        }
+      }
+    }
+
+    let FX = 0, FY = 0;
+    if (sepN > 0) { steer(sepX, sepY, i); FX += _sx * P.sep; FY += _sy * P.sep;           // ① 분리 힘
+      if (i === selected) { selForce.sx = _sx * P.sep; selForce.sy = _sy * P.sep; } }
+    else if (i === selected) selForce.sx = selForce.sy = 0;
+    if (nb > 0) {
+      steer(aliX / nb, aliY / nb, i); FX += _sx * P.ali; FY += _sy * P.ali;                  // ② 정렬 힘
+      if (i === selected) { selForce.ax = _sx * P.ali; selForce.ay = _sy * P.ali; }
+      steer(cohX / nb, cohY / nb, i); FX += _sx * P.coh; FY += _sy * P.coh;                  // ③ 응집 힘
+      if (i === selected) { selForce.cx = _sx * P.coh; selForce.cy = _sy * P.coh; }
+    } else if (i === selected) selForce.ax = selForce.ay = selForce.cx = selForce.cy = 0;
+
+    // ⑦ 포식자(상어) 피하기: 겁나는 거리 안이면 반대쪽으로, 가까울수록 세게
+    scared[i] = 0;
+    if (shark.on) {
+      let dx = xi - shark.x, dy = yi - shark.y;
+      if (wrap) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+      const d = Math.hypot(dx, dy);
+      if (d < FEAR) { steer(dx, dy, i); const w = 6 * (1 - d / FEAR) + 1; FX += _sx * w; FY += _sy * w; scared[i] = 1; }
+    }
+
+    // 마우스: 길게 누르면 커서로 모이고, 오른쪽/Shift면 커서에서 도망간다 (포식자)
+    if (mouse.mode !== 0 && !shark.on) {   // 상어 놀이 중에는 누르기 = 상어 돌진
+      let dx = mouse.x - xi, dy = mouse.y - yi;
+      if (wrap) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+      const d = Math.hypot(dx, dy);
+      if (mouse.mode === 1) { steer(dx, dy, i); FX += _sx * 2.0; FY += _sy * 2.0; }
+      else if (d < 170) { steer(-dx, -dy, i); const w = 5 * (1 - d / 170) + 1; FX += _sx * w; FY += _sy * w; }
+    }
+    fx[i] = FX; fy[i] = FY;
+  }
+
+  // ④ 힘 → 속도 → 위치. 속도는 최대 속도로 자르고, 멈추지 않게 최소 속도도 둔다
+  const vmin = P.maxSpeed * 0.3;
+  for (let i = 0; i < n; i++) {
+    let ux = vx[i] + fx[i] * k, uy = vy[i] + fy[i] * k;
+    const s = Math.hypot(ux, uy), vmax = scared[i] ? P.maxSpeed * 1.7 : P.maxSpeed;  // ⑦ 겁먹으면 더 빨리
+    if (s > vmax) { ux *= vmax / s; uy *= vmax / s; }
+    else if (s < vmin && s > 1e-9) { ux *= vmin / s; uy *= vmin / s; }
+    let x = px[i] + ux * k, y = py[i] + uy * k;
+    if (wrap) {                                   // ⑥ 가장자리: 반대편으로 이어짐
+      if (x < 0) x += W; else if (x >= W) x -= W;
+      if (y < 0) y += H; else if (y >= H) y -= H;
+    } else {                                      // ⑥ 가장자리: 벽에서 튕기기 (그 축의 속도를 뒤집음)
+      if (x < 0) { x = -x; ux = Math.abs(ux); } else if (x > W) { x = 2 * W - x; ux = -Math.abs(ux); }
+      if (y < 0) { y = -y; uy = Math.abs(uy); } else if (y > H) { y = 2 * H - y; uy = -Math.abs(uy); }
+    }
+    px[i] = x; py[i] = y; vx[i] = ux; vy[i] = uy;
+  }
+  if (shark.on) moveShark(k);
+}
+
+// 상어: 커서 쪽으로 헤엄친다. 회전력에 한계가 있어서 홱 꺾지 못한다. 누르고 있으면 돌진(기력 소모)
+function moveShark(k) {
+  const wrap = P.edge === "wrap";
+  shark.dash = mouse.mode !== 0 && shark.stamina > 0.02;
+  shark.stamina = Math.max(0, Math.min(1, shark.stamina + (shark.dash ? -k / 70 : k / 220)));
+  const top = shark.dash ? 7.5 : 3.8, turn = shark.dash ? 0.45 : 0.28;
+  let dx = mouse.x - shark.x, dy = mouse.y - shark.y;
+  if (wrap) { if (dx > W / 2) dx -= W; else if (dx < -W / 2) dx += W; if (dy > H / 2) dy -= H; else if (dy < -H / 2) dy += H; }
+  const d = Math.hypot(dx, dy);
+  if (d > 1) {
+    const want = top * Math.min(1, d / 50);
+    let sx = dx / d * want - shark.vx, sy = dy / d * want - shark.vy;
+    const m = Math.hypot(sx, sy); if (m > turn) { sx *= turn / m; sy *= turn / m; }
+    shark.vx += sx * k; shark.vy += sy * k;
+  }
+  const s = Math.hypot(shark.vx, shark.vy);
+  if (s > top) { shark.vx *= top / s; shark.vy *= top / s; }
+  if (s > 0.3) shark.ang = Math.atan2(shark.vy, shark.vx);
+  shark.wiggle += (0.15 + s * 0.06) * k;
+  shark.x += shark.vx * k; shark.y += shark.vy * k;
+  if (wrap) { shark.x = (shark.x + W) % W; shark.y = (shark.y + H) % H; }
+  else { shark.x = Math.max(0, Math.min(W, shark.x)); shark.y = Math.max(0, Math.min(H, shark.y)); }
+
+  // 입 근처에 닿은 물고기 한 마리를 먹는다. 한 입 먹으면 잠깐 삼키는 시간 (맨 끝 보이드를 그 자리로 옮겨 수를 줄임)
+  shark.chew = Math.max(0, (shark.chew || 0) - k);
+  const mx = shark.x + Math.cos(shark.ang) * 14, my = shark.y + Math.sin(shark.ang) * 14;
+  for (let i = P.n - 1; i >= 0 && shark.chew <= 0; i--) {
+    if ((px[i] - mx) ** 2 + (py[i] - my) ** 2 > EAT * EAT) continue;
+    shark.chew = CHEW;
+    for (let b = 0; b < 8; b++) { const a = Math.random() * 6.283, v = 1 + Math.random() * 2.5;
+      bits.push({ x: px[i], y: py[i], vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1 }); }
+    const j = P.n - 1;
+    px[i] = px[j]; py[i] = py[j]; vx[i] = vx[j]; vy[i] = vy[j];
+    P.n--; if (shark.playing) shark.eaten++;
+    if (selected === j) selected = i; else if (selected === i) selected = -1;
+  }
+  if (P.n < 10) { for (let i = P.n; i < 10; i++) spawn(i); P.n = 10; }   // 최소 10마리는 남긴다
+  inputs.n.inp.value = P.n; inputs.n.out.textContent = P.n;
+}
+
+// ───────── 그리기 ─────────
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let dpr = 1;
+function resize() {
+  const r = cv.getBoundingClientRect();
+  const oldW = W, oldH = H;
+  W = Math.max(50, r.width); H = Math.max(50, r.height);
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (rng) for (let i = 0; i < MAX_N; i++) { px[i] = px[i] / oldW * W; py[i] = py[i] / oldH * H; }
+  ctx.fillStyle = "#0b0e14"; ctx.fillRect(0, 0, W, H);
+}
+
+const HUES = 24;
+const buckets = Array.from({ length: HUES }, () => []);
+function tri(i, size) {
+  const s = Math.hypot(vx[i], vy[i]) || 1, ux = vx[i] / s, uy = vy[i] / s;
+  const x = px[i], y = py[i];
+  ctx.moveTo(x + ux * size * 1.6, y + uy * size * 1.6);
+  ctx.lineTo(x - ux * size + uy * size * 0.75, y - uy * size - ux * size * 0.75);
+  ctx.lineTo(x - ux * size - uy * size * 0.75, y - uy * size + ux * size * 0.75);
+  ctx.closePath();
+}
+function arrow(x, y, dx, dy, col) {
+  const L = Math.hypot(dx, dy); if (L < 0.5) return;
+  const ux = dx / L, uy = dy / L, ex = x + dx, ey = y + dy;
+  ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - ux * 8 + uy * 4, ey - uy * 8 - ux * 4);
+  ctx.lineTo(ex - ux * 8 - uy * 4, ey - uy * 8 + ux * 4); ctx.closePath(); ctx.fill();
+}
+
+function draw() {
+  const n = P.n;
+  if (P.trail) { ctx.fillStyle = "rgba(11,14,20,0.16)"; ctx.fillRect(0, 0, W, H); }  // 잔상: 반투명으로 덮어 서서히 지움
+  else { ctx.fillStyle = "#0b0e14"; ctx.fillRect(0, 0, W, H); }
+
+  // 선택한 보이드의 시야·이웃 찾기 (한 마리라 전수 비교로 충분)
+  let neigh = null;
+  if (selected >= 0 && selected < n) {
+    neigh = [];
+    const wrap = P.edge === "wrap", v2 = P.view * P.view, xi = px[selected], yi = py[selected];
+    for (let j = 0; j < n; j++) {
+      if (j === selected) continue;
+      let dx = px[j] - xi, dy = py[j] - yi;
+      if (wrap) { if (dx > W / 2) dx -= W; else if (dx < -W / 2) dx += W; if (dy > H / 2) dy -= H; else if (dy < -H / 2) dy += H; }
+      const d2 = dx * dx + dy * dy;
+      if (d2 < v2) neigh.push([j, dx, dy, d2 < P.sepDist * P.sepDist]);
+    }
+    ctx.fillStyle = "rgba(122,167,255,0.07)"; ctx.strokeStyle = "rgba(122,167,255,0.7)"; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(xi, yi, P.view, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,122,122,0.8)";
+    ctx.beginPath(); ctx.arc(xi, yi, P.sepDist, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(111,220,140,0.35)";
+    ctx.beginPath();
+    for (const [, dx, dy] of neigh) { ctx.moveTo(xi, yi); ctx.lineTo(xi + dx, yi + dy); }
+    ctx.stroke();
+  }
+
+  const size = n > 600 ? 4 : 5;
+  const dim = neigh ? 0.45 : 1;
+  if (P.color === "solid") {
+    ctx.globalAlpha = dim; ctx.fillStyle = "#e8eef8"; ctx.beginPath();
+    for (let i = 0; i < n; i++) tri(i, size);
+    ctx.fill(); ctx.globalAlpha = 1;
+  } else {
+    // 색 모드: 색상을 24단계로 묶어 한 번에 채운다 (fill 호출 수를 줄여 빠르게)
+    for (const b of buckets) b.length = 0;
+    for (let i = 0; i < n; i++) {
+      let h;
+      if (P.color === "speed") { const t = Math.min(1, Math.hypot(vx[i], vy[i]) / P.maxSpeed); h = (1 - t) * 0.62; }   // 느림=파랑 → 빠름=빨강
+      else h = (Math.atan2(vy[i], vx[i]) / (Math.PI * 2) + 1) % 1;                                                   // 진행 방향 = 색상환
+      buckets[Math.min(HUES - 1, (h * HUES) | 0)].push(i);
+    }
+    ctx.globalAlpha = dim;
+    for (let b = 0; b < HUES; b++) {
+      if (!buckets[b].length) continue;
+      ctx.fillStyle = `hsl(${(b + 0.5) / HUES * 360},85%,62%)`; ctx.beginPath();
+      for (const i of buckets[b]) tri(i, size);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  if (neigh) {
+    ctx.fillStyle = "#6fdc8c"; ctx.beginPath();
+    for (const [j, , , close] of neigh) if (!close) tri(j, size + 1);
+    ctx.fill();
+    ctx.fillStyle = "#ff9a7a"; ctx.beginPath();
+    for (const [j, , , close] of neigh) if (close) tri(j, size + 1);
+    ctx.fill();
+    ctx.fillStyle = "#ffcf6a"; ctx.beginPath(); tri(selected, size + 3); ctx.fill();
+    // 세 힘을 화살표로 (힘은 작아서 크게 늘려 그림)
+    const xi = px[selected], yi = py[selected], g = 25 / Math.max(P.maxForce, 0.02);
+    arrow(xi, yi, selForce.sx * g, selForce.sy * g, "#ff7a7a");
+    arrow(xi, yi, selForce.ax * g, selForce.ay * g, "#6fdc8c");
+    arrow(xi, yi, selForce.cx * g, selForce.cy * g, "#7aa7ff");
+  }
+
+  // 튀는 조각
+  for (let b = bits.length - 1; b >= 0; b--) {
+    const p = bits[b]; p.x += p.vx; p.y += p.vy; p.vx *= 0.93; p.vy *= 0.93; p.life -= 0.035;
+    if (p.life <= 0) { bits.splice(b, 1); continue; }
+    ctx.fillStyle = `rgba(255,207,106,${p.life})`; ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
+
+  if (shark.on) { drawShark(); return; }
+
+  if (mouse.mode !== 0) {
+    ctx.strokeStyle = mouse.mode === 1 ? "rgba(122,167,255,.8)" : "rgba(255,122,122,.8)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(mouse.x, mouse.y, mouse.mode === 1 ? 10 : 170, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawShark() {
+  ctx.strokeStyle = "rgba(255,122,122,0.18)"; ctx.lineWidth = 1; ctx.setLineDash([4, 6]);
+  ctx.beginPath(); ctx.arc(shark.x, shark.y, FEAR, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.save(); ctx.translate(shark.x, shark.y); ctx.rotate(shark.ang);
+  const t = Math.sin(shark.wiggle) * 0.35;   // 꼬리 흔들기
+  ctx.fillStyle = shark.dash ? "#c9d8f2" : "#8fa6cc";
+  ctx.beginPath();                            // 몸통
+  ctx.moveTo(22, 0); ctx.quadraticCurveTo(10, -8, -10, -6); ctx.lineTo(-18, -1);
+  ctx.lineTo(-18, 1); ctx.lineTo(-10, 6); ctx.quadraticCurveTo(10, 8, 22, 0); ctx.fill();
+  ctx.beginPath();                            // 꼬리
+  ctx.moveTo(-16, 0); ctx.lineTo(-28, -9 + t * 10); ctx.lineTo(-24, t * 6); ctx.lineTo(-28, 9 + t * 10); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(2, -6); ctx.lineTo(-6, -15); ctx.lineTo(-8, -5); ctx.fill();   // 등지느러미
+  ctx.fillStyle = "#0b0e14"; ctx.beginPath(); ctx.arc(13, -3, 1.6, 0, 6.3); ctx.fill();
+  ctx.restore();
+}
+
+// ───────── 루프 + FPS ─────────
+const hud = document.getElementById("hud");
+let last = performance.now(), fpsAcc = 0, fpsFrames = 0, fps = 0, stepMs = 0;
+function frame(now) {
+  const dt = Math.min(50, now - last); last = now;
+  fpsAcc += dt; fpsFrames++;
+  if (fpsAcc >= 500) { fps = fpsFrames * 1000 / fpsAcc; fpsAcc = 0; fpsFrames = 0;
+    hud.textContent = `FPS ${fps.toFixed(0)}  ·  ${P.n}마리  ·  계산 ${stepMs.toFixed(1)}ms${paused ? "  ·  일시정지" : ""}`; }
+  const t0 = performance.now();
+  if (!paused) step(dt / 16.667);
+  if (shark.playing && !paused) {
+    shark.tLeft -= dt / 1000;
+    if (shark.tLeft <= 0) endRound();
+  }
+  if (shark.on) scoreEl.innerHTML = shark.playing
+    ? `🐟 ${shark.eaten}마리 · ${Math.ceil(shark.tLeft)}초 <span class="dash"><i style="width:${shark.stamina * 100}%"></i></span>`
+    : `상어 자유 헤엄 · 남은 물고기 ${P.n}`;
+  stepMs = stepMs * 0.9 + (performance.now() - t0) * 0.1;
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// ───────── 패널 ─────────
+const SLIDERS = [
+  ["sliders-rule", "sep", "① 분리", 0, 3, 0.05, "var(--sep)"],
+  ["sliders-rule", "ali", "② 정렬", 0, 3, 0.05, "var(--ali)"],
+  ["sliders-rule", "coh", "③ 응집", 0, 3, 0.05, "var(--coh)"],
+  ["sliders-env", "view", "시야 반경 (px)", 10, 200, 1],
+  ["sliders-env", "sepDist", "분리 거리 (px)", 2, 80, 1],
+  ["sliders-env", "maxSpeed", "최대 속도", 0.5, 8, 0.1],
+  ["sliders-env", "maxForce", "최대 힘 (회전력)", 0.01, 0.6, 0.01],
+  ["sliders-env", "n", "보이드 수", 10, 1000, 10],
+];
+const inputs = {};
+for (const [box, key, label, min, max, st, dot] of SLIDERS) {
+  const row = document.createElement("div"); row.className = "row";
+  row.innerHTML = `<label for="s-${key}">${dot ? `<span class="dot" style="background:${dot}"></span>` : ""}${label}</label><output></output>
+    <input type="range" id="s-${key}" min="${min}" max="${max}" step="${st}">`;
+  const inp = row.querySelector("input"), out = row.querySelector("output");
+  const dec = st < 0.1 ? 2 : st < 1 ? 1 : 0;
+  inp.oninput = () => { P[key] = +inp.value; out.textContent = (+inp.value).toFixed(dec); };  // 실시간 반영
+  inputs[key] = { inp, out, dec };
+  document.getElementById(box).appendChild(row);
+}
+function syncUI() {
+  for (const k in inputs) { inputs[k].inp.value = P[k]; inputs[k].out.textContent = (+P[k]).toFixed(inputs[k].dec); }
+  document.querySelectorAll("#presets button").forEach(b => {
+    const pr = PRESETS[b.textContent]; b.classList.toggle("on", Object.keys(pr).every(k => Math.abs(P[k] - pr[k]) < 1e-9));
+  });
+}
+document.getElementById("panel").addEventListener("input", syncUI);
+const presetBox = document.getElementById("presets");
+for (const name in PRESETS) {
+  const b = document.createElement("button"); b.className = "b"; b.textContent = name;
+  b.onclick = () => applyPreset(name);
+  presetBox.appendChild(b);
+}
+function applyPreset(name) { Object.assign(P, PRESETS[name]); syncUI(); }
+
+const btnPause = document.getElementById("btn-pause");
+function setPaused(v) { paused = v; btnPause.textContent = v ? "계속" : "일시정지"; btnPause.classList.toggle("on", v); }
+btnPause.onclick = () => setPaused(!paused);
+document.getElementById("btn-restart").onclick = () => { resetAll(false); setPaused(false); };
+document.getElementById("btn-random").onclick = () => { resetAll(true); setPaused(false); };
+function seg(id, key) {
+  const box = document.getElementById(id);
+  box.querySelectorAll("button").forEach(b => b.onclick = () => {
+    P[key] = b.dataset.v; box.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  });
+}
+seg("seg-edge", "edge"); seg("seg-color", "color");
+document.getElementById("chk-trail").onchange = e => { P.trail = e.target.checked; };
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.getElementById("tab-ctl").hidden = b.dataset.tab !== "ctl";
+  document.getElementById("tab-ex").hidden = b.dataset.tab !== "ex";
+});
+
+// ───────── 상어 놀이 ─────────
+const scoreEl = document.getElementById("score"), resultEl = document.getElementById("result");
+const btnShark = document.getElementById("btn-shark");
+function startRound() {
+  applyPreset("물고기 떼"); P.n = START_N; resetAll(true); syncUI();
+  shark.on = shark.playing = true; shark.eaten = 0; shark.tLeft = ROUND; shark.stamina = 1;
+  shark.x = mouse.x = W / 2; shark.y = mouse.y = H / 2; shark.vx = shark.vy = 0;
+  scoreEl.hidden = false; resultEl.hidden = true; btnShark.textContent = "상어 놀이 끝내기";
+  setPaused(false); cv.style.cursor = "none";
+}
+function endRound() {
+  shark.playing = false; shark.tLeft = 0;
+  const rec = shark.eaten > shark.best;
+  if (rec) { shark.best = shark.eaten; try { localStorage.setItem("boids-shark-best", shark.best); } catch (e) {} }
+  document.getElementById("res-n").textContent = shark.eaten + "마리";
+  document.getElementById("res-best").textContent = rec ? "🎉 새 최고 기록!" : `최고 기록 ${shark.best}마리`;
+  resultEl.hidden = false; cv.style.cursor = "crosshair";
+}
+function quitShark() {
+  shark.on = shark.playing = false; scoreEl.hidden = true; resultEl.hidden = true;
+  btnShark.textContent = "🦈 상어 놀이 시작"; cv.style.cursor = "crosshair";
+}
+btnShark.onclick = () => shark.on ? quitShark() : startRound();
+document.getElementById("btn-again").onclick = startRound;
+document.getElementById("btn-quit").onclick = quitShark;
+
+// ───────── 마우스 ─────────
+let down = null;
+function pos(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("pointerdown", e => {
+  const [x, y] = pos(e); mouse.x = x; mouse.y = y;
+  const flee = e.button === 2 || e.shiftKey;
+  down = { x, y, t: performance.now(), flee };
+  mouse.mode = flee ? -1 : 1;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", e => { const [x, y] = pos(e); mouse.x = x; mouse.y = y; });
+cv.addEventListener("pointerup", e => {
+  const [x, y] = pos(e);
+  // 짧은 왼쪽 클릭 = 보이드 고르기 (상어 놀이 중에는 안 함)
+  if (down && !down.flee && !shark.on && performance.now() - down.t < 250 && Math.hypot(x - down.x, y - down.y) < 6) pick(x, y);
+  mouse.mode = 0; down = null;
+});
+cv.addEventListener("pointercancel", () => { mouse.mode = 0; down = null; });
+function pick(x, y) {
+  let best = -1, bd = 20 * 20;
+  for (let i = 0; i < P.n; i++) { const d = (px[i] - x) ** 2 + (py[i] - y) ** 2; if (d < bd) { bd = d; best = i; } }
+  selected = best;
+}
+
+// 테스트·콘솔용 손잡이
+window.boids = { P, PRESETS, shark, applyPreset, step, draw, pick, mouse, setPaused, resetAll,
+  get fps() { return fps; }, get stepMs() { return stepMs; }, get selected() { return selected; }, set selected(v) { selected = v; },
+  get W() { return W; }, get H() { return H; }, px, py, vx, vy };
+
+window.addEventListener("resize", resize);
+resize(); resetAll(false); syncUI();
+requestAnimationFrame(t => { last = t; frame(t); });
+</script>
+</body>
+</html>
